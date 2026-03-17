@@ -28,50 +28,57 @@
             '</svg>';
     }
 
-    function createGlobalDeleteBtn() {
-        deleteBtn = document.createElement('div');
-        deleteBtn.className = 'swipe-delete-action';
-        deleteBtn.innerHTML = getTrashSVG();
-        deleteBtn.setAttribute('title', 'Törlés');
-        document.body.appendChild(deleteBtn);
-
-        deleteBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            if (activeRow) {
-                doDelete(activeRow);
-            }
-        });
+    // Viewport szélessége mobilon is helyesen (zoom esetén visualViewport)
+    function viewportWidth() {
+        return (window.visualViewport ? window.visualViewport.width : window.innerWidth);
     }
 
-    // Pozicionáljuk a gombot a sor EREDETI jobb széléhez (transform előtt)
-    // A gomb jobb éle = sor jobb éle, bal éle = sor jobb éle - SWIPE_REVEAL
-    // Így amikor a sor SWIPE_REVEAL px-t csúszik balra, a tartalom jobb éle
-    // pontosan érinti a gomb bal élét → nincs rés
+    // Pozicionálja a gombot a sor EREDETI (transform nélküli) jobb széléhez.
+    // Átmenetileg törli a transformot a mérés előtt, majd visszaállítja.
     function anchorBtnToRow(row) {
+        row.style.transition = 'none';
+        row.style.transform  = '';
+
         var rect = row.getBoundingClientRect();
+
+        // Transition visszakapcsolása a következő frame-ben
+        requestAnimationFrame(function() {
+            row.style.transition = '';
+        });
+
         deleteBtn.style.top    = rect.top + 'px';
         deleteBtn.style.height = rect.height + 'px';
-        // A gomb jobb éle egyezik a sor jobb élével
-        deleteBtn.style.right  = (window.innerWidth - rect.right) + 'px';
+        // Gomb jobb éle = sor jobb éle → sor 44px-es elcsúszása után
+        // a tartalom jobb éle pontosan érinti a gomb bal élét, nincs rés
+        deleteBtn.style.right  = (viewportWidth() - rect.right) + 'px';
     }
 
-    function showBtn() {
-        deleteBtn.classList.add('visible');
-    }
+    function showBtn() { deleteBtn.classList.add('visible'); }
+    function hideBtn() { deleteBtn.classList.remove('visible'); }
 
-    function hideBtn() {
-        deleteBtn.classList.remove('visible');
+    // Kinyeri a Roundcube IMAP UID-t a sorból.
+    // Roundcube a sort id="rcmrow{uid}" formában generálja.
+    function getRowUid(row) {
+        var uid = row.getAttribute('data-uid');
+        if (uid) return uid;
+        // "rcmrow123456" → "123456"
+        return (row.id || '').replace(/^rcmrow/, '');
     }
 
     function doDelete(row) {
-        var uid = row.getAttribute('data-uid') || row.id;
+        isDragging = false;
+        var uid = getRowUid(row);
         row.classList.add('swipe-deleting');
         hideBtn();
+        activeRow = null;
+
         setTimeout(function() {
-            if (window.rcmail) {
-                rcmail.message_list && rcmail.message_list.select(uid);
-                rcmail.command('delete', '', row);
+            if (!window.rcmail) return;
+            if (rcmail.message_list) {
+                rcmail.message_list.clear_selection();
+                rcmail.message_list.select(uid);
             }
+            rcmail.command('delete', '', row);
         }, 250);
     }
 
@@ -81,7 +88,7 @@
         hideBtn();
     }
 
-    // --- Egér / érintés kezelők (documentra kötve drag közben) ---
+    // --- Egér kezelők (documentra kötve drag alatt) ---
 
     function onMouseMove(e) {
         if (!isDragging || !activeRow) return;
@@ -95,10 +102,13 @@
         handleUp(e.clientX);
     }
 
+    // --- Érintés kezelők (a sorra kötve — touch követi az indítási elemet) ---
+
     function onTouchMove(e) {
         if (!isDragging || !activeRow) return;
         handleMove(e.touches[0].clientX, e.touches[0].clientY);
-        if (isHorizontal) e.preventDefault();
+        // Csak vízszintes swipe esetén tiltjuk a scrollt
+        if (isHorizontal === true) e.preventDefault();
     }
 
     function onTouchEnd(e) {
@@ -109,10 +119,13 @@
         handleUp(clientX);
     }
 
+    // --- Mozgás / felengedés közös logika ---
+
     function handleMove(clientX, clientY) {
         var deltaX = clientX - startX;
         var deltaY = clientY - startY;
 
+        // Irány meghatározása az első 5px után
         if (isHorizontal === null) {
             if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
                 isHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
@@ -122,6 +135,7 @@
 
         if (!isHorizontal) return;
 
+        // Jobbra visszahúzás: visszaállítás
         if (deltaX > 0) {
             activeRow.style.transform = '';
             hideBtn();
@@ -150,13 +164,13 @@
         }
 
         if (Math.abs(deltaX) >= DELETE_TRIGGER) {
+            // Elég messzire húzta: azonnali törlés
             doDelete(activeRow);
-            activeRow = null;
         } else if (Math.abs(deltaX) >= SWIPE_THRESHOLD) {
-            // Megáll SWIPE_REVEAL pozícióban, gomb kattintható marad
+            // Megáll SWIPE_REVEAL px-nél, gomb várja a tapot/kattintást
             activeRow.style.transform = 'translateX(-' + SWIPE_REVEAL + 'px)';
             showBtn();
-            // activeRow megmarad a gomb click handlerhez
+            // activeRow megmarad, hogy a gomb click/touchend törölhessen
         } else {
             resetRow(activeRow);
             activeRow = null;
@@ -177,9 +191,11 @@
     }
 
     function startSwipe(row, clientX, clientY) {
+        // Előző aktív sor visszaállítása
         if (activeRow && activeRow !== row) {
             resetRow(activeRow);
         }
+
         activeRow    = row;
         startX       = clientX;
         startY       = clientY;
@@ -187,11 +203,33 @@
         isDragging   = true;
         isHorizontal = null;
 
-        // Pozicionáljuk a gombot MOST, a sor transform előtti állapotában
+        // Gombot a sor jobb széléhez horgonyozzuk (transform törlése után mérve)
         anchorBtnToRow(row);
     }
 
-    // --- Globális kattintás: visszaállít ha máshova kattint ---
+    // --- Törlés gomb: click (desktop) + touchend (mobil, 300ms delay nélkül) ---
+
+    function createGlobalDeleteBtn() {
+        deleteBtn = document.createElement('div');
+        deleteBtn.className = 'swipe-delete-action';
+        deleteBtn.innerHTML = getTrashSVG();
+        deleteBtn.setAttribute('title', 'Törlés');
+        document.body.appendChild(deleteBtn);
+
+        deleteBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (activeRow) doDelete(activeRow);
+        });
+
+        // Mobil: touchend a 300ms click-delay megkerülésére
+        deleteBtn.addEventListener('touchend', function(e) {
+            e.preventDefault(); // megakadályozza a szimulált click-et
+            e.stopPropagation();
+            if (activeRow) doDelete(activeRow);
+        });
+    }
+
+    // --- Globális kattintás / tap: visszaállítás ha máshova kattint ---
 
     function onDocumentClick(e) {
         if (!activeRow) return;
@@ -256,6 +294,12 @@
         }
 
         window.addEventListener('scroll', onScroll);
+
+        // visualViewport scroll (mobil böngészők)
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('scroll', onScroll);
+        }
+
         document.addEventListener('click', onDocumentClick);
     }
 
