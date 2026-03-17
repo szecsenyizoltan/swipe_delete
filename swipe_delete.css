@@ -1,30 +1,8 @@
-/* Swipe Delete Plugin */
+/* Swipe Delete Plugin — csak mobil */
 
-#messagelist tbody tr,
-.message-list tr {
-    transition: transform 0.15s ease;
+html.layout-phone .messagelist tr,
+html.touch .messagelist tr {
     will-change: transform;
-}
-
-/* Törlés gomb: position:fixed overlay */
-.swipe-delete-action {
-    position: fixed;
-    width: 48px;
-    background-color: #e74c3c;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 9999;
-}
-
-.swipe-delete-action svg {
-    width: 22px;
-    height: 22px;
-    fill: #ffffff;
-    pointer-events: none;
 }
 
 /* Visszaállítás toast */
@@ -47,7 +25,7 @@
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.2s ease;
-    overflow: hidden; /* progress bar klippeléshez */
+    overflow: hidden;
 }
 
 .swipe-delete-toast.visible {
@@ -78,7 +56,6 @@
     background: rgba(255,255,255,0.1);
 }
 
-/* Progress bar alul */
 .swipe-delete-toast-progress {
     position: absolute;
     bottom: 0;
@@ -86,5 +63,4 @@
     height: 3px;
     width: 100%;
     background: #90caf9;
-    transform-origin: left center;
 }
