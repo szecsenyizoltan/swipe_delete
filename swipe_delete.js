@@ -111,12 +111,24 @@
         hideToast();
 
         if (!window.rcmail) return;
+
+        var uid   = String(p.uid);
         var trash = rcmail.env.trash_mailbox;
+
         if (trash && p.mbox !== trash) {
-            rcmail.move_messages(trash, null, [p.uid]);
+            // Áthelyezés kukába — közvetlen POST az elmentett forrásmappával,
+            // nem az aktuális env.mailbox-szal (az időközben megváltozhat)
+            rcmail.http_post('move', {
+                _uid:         uid,
+                _mbox:        p.mbox,
+                _target_mbox: trash
+            });
         } else {
-            var post_data = rcmail.selection_post_data({_uid: [p.uid]});
-            if (post_data._uid) rcmail.with_selected_messages('delete', post_data);
+            // Végleges törlés (már kukában voltunk)
+            rcmail.http_post('delete', {
+                _uid:  uid,
+                _mbox: p.mbox
+            });
         }
     }
 
