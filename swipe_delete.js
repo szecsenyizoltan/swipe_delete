@@ -96,38 +96,34 @@
         var uid = getRowUid(row);
         if (!uid) return;
 
-        // 1. Animáció: sor csúszik ki balra
+        // Animáció: sor csúszik ki balra
         row.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
         row.style.transform  = 'translateX(-110%)';
         row.style.opacity    = '0';
 
         setTimeout(function() {
-            // 2. display:none → nincs üres hely, függetlenül attól, hogy
-            //    Roundcube eltávolítja-e a DOM-ból vagy sem
+            // display:none → nincs üres hely akár sikerül Roundcube-nak
+            // eltávolítani a DOM-ból, akár nem
             row.style.display = 'none';
 
-            // 3. Törlés küldése Roundcube-on keresztül
             var numUid = parseInt(uid, 10) || uid;
-            var ml = rcmail.message_list;
+            var trash  = rcmail.env.trash_mailbox;
 
-            if (ml && ml.rows) {
-                ml.clear_selection();
-                // Próbáljuk int és string kulcsal is
-                var key = ml.rows[numUid] ? numUid : (ml.rows[uid] ? uid : null);
-                if (key !== null) {
-                    ml.selection          = [key];
-                    ml.rows[key].selected = true;
-                    rcmail.command('delete');
-                    return;
+            if (trash && rcmail.env.mailbox !== trash) {
+                // Normál eset: áthelyezés a kuka mappába.
+                // move_messages() harmadik paramétere [uids] tömb →
+                // selection_post_data({_uid: [numUid]}) -t hív, NEM a message_list
+                // get_selection()-t, tehát nem kell semmit kijelölni.
+                rcmail.move_messages(trash, null, [numUid]);
+            } else {
+                // Kukában vagyunk vagy nincs kuka mappa → végleges törlés.
+                // with_selected_messages() a move_messages() belső segédfüggvénye,
+                // szintén fogad közvetlen post_data-t.
+                var post_data = rcmail.selection_post_data({_uid: [numUid]});
+                if (post_data._uid) {
+                    rcmail.with_selected_messages('delete', post_data);
                 }
             }
-
-            // Fallback: közvetlen HTTP POST ha a message_list nem ad selection-t
-            rcmail.http_post('delete', {
-                _uid:  uid,
-                _mbox: rcmail.env.mailbox,
-                _from: 'list'
-            });
         }, 230);
     }
 
