@@ -115,9 +115,16 @@
         var numUid = parseInt(String(p.uid), 10) || p.uid;
         var trash  = rcmail.env.trash_mailbox;
 
+        console.log('[swipe_delete] commitPending uid=' + numUid
+            + ' mbox=' + p.mbox
+            + ' trash=' + trash
+            + ' env.mailbox=' + rcmail.env.mailbox);
+
         if (trash && p.mbox !== trash) {
+            console.log('[swipe_delete] calling move_messages to', trash);
             rcmail.move_messages(trash, null, [numUid]);
         } else {
+            console.log('[swipe_delete] calling http_post delete');
             rcmail.http_post('delete', {_uid: String(numUid), _mbox: p.mbox});
         }
     }
