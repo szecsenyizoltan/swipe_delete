@@ -63,9 +63,16 @@
     }
 
     // Opacity arányos a csúszás mértékével: 0 → teljes gomb szélességig fokozatosan látszik
+    // Ha a sort közben Roundcube eltávolította (pl. mappa-drop), elrejtjük a gombot
     function updateBtnOpacity(deltaX) {
+        if (!activeRow || !activeRow.parentNode) {
+            hideBtn();
+            activeRow  = null;
+            isDragging = false;
+            return;
+        }
         var ratio = Math.min(1, Math.abs(deltaX) / SWIPE_REVEAL);
-        deleteBtn.style.opacity      = ratio;
+        deleteBtn.style.opacity       = ratio;
         deleteBtn.style.pointerEvents = ratio >= 1 ? 'auto' : 'none';
     }
 
@@ -166,15 +173,6 @@
     // --- Közös mozgás / felengedés logika ---
 
     function handleMove(clientX, clientY) {
-        // Ha Roundcube mappa-húzást indított, azonnal leállunk
-        if (window.rcmail && rcmail.drag_active) {
-            resetRow(activeRow);
-            activeRow    = null;
-            isDragging   = false;
-            isHorizontal = null;
-            return;
-        }
-
         var deltaX = clientX - startX;
         var deltaY = clientY - startY;
 
