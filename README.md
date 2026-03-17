@@ -1,6 +1,6 @@
 # swipe_delete — Roundcube Plugin
 
-A Roundcube webmail plugin that adds LinkedIn-style swipe-to-delete functionality to the message list.
+A Roundcube webmail plugin that adds Gmail-style swipe-to-delete on mobile.
 
 ---
 
@@ -8,27 +8,25 @@ A Roundcube webmail plugin that adds LinkedIn-style swipe-to-delete functionalit
 
 ### Description
 
-Swipe an email row to the left to reveal a red trash button right at the edge of the row. Tap the button to delete — an undo toast appears at the bottom of the screen for 10 seconds, giving you a chance to restore the message before it is actually moved to the Trash folder.
+Swipe an email row to the left on mobile to delete it — just like in the Gmail app. A toast notification appears at the bottom for 5 seconds with a **Restore** button and a countdown progress bar, giving you a chance to undo before the message is moved to Trash.
 
-Works on both desktop (mouse drag) and mobile (touch swipe).
+Desktop is unaffected. No trash icon is shown anywhere.
 
 ### Features
 
-- Swipe left to reveal a trash button flush with the right edge of the message row
-- The button fades in proportionally as you swipe — no overlap with email content
-- Release the swipe → button stays visible, tap/click it to delete
-- **Undo toast** appears for 10 seconds after deletion with a **Restore** button and a countdown progress bar
-- Clicking **Restore** slides the row back into place; the message is never moved to Trash
-- After 10 seconds the toast closes and the message is moved to Trash via Roundcube's native `move_messages()`
+- **Mobile only** (`layout-phone` / `touch` layout): swipe left 80 px to delete
+- Row follows your finger; release past the threshold → row slides out and disappears
+- **Undo toast** appears for 5 seconds with a **Restore** button and a progress bar
+- Tapping **Restore** slides the row back; no API call is made and the message stays in its folder
+- After 5 seconds the toast closes and the message is moved to Trash via Roundcube's native `move_messages()`
 - If you delete a second message while a toast is still open, the first deletion is committed immediately and a new toast opens
-- Click/tap anywhere outside the row → row snaps back without deleting
-- Drag-to-folder safe: if the pointer drifts more than 40 px vertically the swipe is cancelled; if Roundcube removes the row during a folder drop the trash button disappears automatically
-- MutationObserver support: attaches to newly loaded rows after pagination or list refresh
+- Swipe is cancelled automatically if the finger drifts more than 40 px vertically (prevents conflict with drag-to-folder)
+- Desktop: the plugin is fully inactive
 
 ### Requirements
 
 - Roundcube 1.5+
-- Elastic skin (or any skin using `#messagelist`)
+- Elastic skin (or any skin that adds `layout-phone` or `touch` class to `<html>`)
 
 ### Installation
 
@@ -46,13 +44,13 @@ $config['plugins'] = [
 
 ### How it works
 
-**Swipe button positioning**
+**Swipe detection**
 
-Because `position: absolute` does not work correctly inside HTML `<tr>` elements (browsers do not treat `<tr>` as a positioning context), the delete button is a single `position: fixed` overlay appended to `<body>`. Its position is anchored once at `touchstart`/`mousedown` using `getBoundingClientRect()` — before any transform is applied — so the button's left edge aligns exactly with the row's right edge once the row has slid left by the button's width (48 px). `window.visualViewport.width` is used on mobile for correct positioning when the browser viewport is zoomed.
+Touch events are attached to each message row. On `touchstart` the plugin records the starting position. On `touchmove` it tracks the horizontal delta and moves the row with `translateX`. If the vertical drift exceeds 40 px at any point, the swipe is cancelled and the row snaps back. On `touchend`, if the horizontal delta is ≥ 80 px the deletion flow begins; otherwise the row snaps back.
 
 **Deferred deletion with undo**
 
-Tapping the trash button does not immediately call any Roundcube API. Instead it hides the row (`display: none`), stores the pending deletion (UID + source mailbox), and shows the undo toast with a 10-second countdown. Only after the countdown expires does it call `rcmail.move_messages(trash, null, [uid])` (or `rcmail.with_selected_messages('delete', ...)` when already in the Trash folder). This approach requires no knowledge of the new UID assigned after the move — if the user clicks Restore, the row is simply made visible again and no API call is made.
+When the swipe threshold is reached, the row is animated out and hidden with `display: none` — but no Roundcube API is called yet. The pending deletion (UID + source mailbox) is stored in memory and a 5-second undo toast is shown. Only after the countdown expires does the plugin call `rcmail.move_messages(trash, null, [uid])` (or `rcmail.with_selected_messages('delete', ...)` when already in the Trash folder). If the user taps **Restore**, the pending deletion is cancelled, the row is made visible again with a slide-in animation, and no API call is ever made.
 
 ---
 
@@ -60,27 +58,25 @@ Tapping the trash button does not immediately call any Roundcube API. Instead it
 
 ### Leírás
 
-LinkedIn-stílusú balra húzás törlés funkció Roundcube webmailhez. Ha az email sort balra húzod, pontosan mellette jelenik meg egy piros kuka gomb. Rákattintva az üzenet "törlődik" — de 10 másodpercig alul egy toast értesítés jelenik meg **Visszaállítás** gombbal, amíg a levél ténylegesen a Kuka mappába kerül.
+Gmail-stílusú balra húzás törlés Roundcube webmailhez mobilon. Húzd balra az email sort, és az eltűnik — akárcsak a Gmail appban. Alul 5 másodpercig egy toast értesítés jelenik meg **Visszaállítás** gombbal és visszaszámlálós progress bar-ral, mielőtt az üzenet ténylegesen a Kukába kerülne.
 
-Asztali gépen (egér) és mobilon (érintés) egyaránt működik.
+Desktopon a plugin inaktív. Kuka gomb sehol nem jelenik meg.
 
 ### Funkciók
 
-- Balra húzásra a kuka gomb pontosan az email sor jobb szélénél jelenik meg
-- A gomb a húzás mértékével arányosan halványodik be — nem fed át az email tartalommal
-- Elengedés → a gomb látható marad, kattintásra/tapra töröl
-- **Visszaállítás toast** jelenik meg 10 másodpercig törlés után, visszaszámlálós progress bar-ral
-- **Visszaállítás** gombra kattintva a sor visszacsúszik animációval; a levél sosem kerül a Kukába
-- 10 másodperc után a toast bezárul és a Roundcube natív `move_messages()`-ével a levél a Kukába kerül
+- **Csak mobilon** (`layout-phone` / `touch` layout): balra húzás 80 px után töröl
+- A sor követi az ujjat; elengedés a küszöb után → sor kirepül és eltűnik
+- **Visszaállítás toast** jelenik meg 5 másodpercig **Visszaállítás** gombbal és progress bar-ral
+- **Visszaállítás** tapra a sor visszacsúszik animációval; semmilyen API-hívás nem történik, a levél marad
+- 5 másodperc után a toast bezárul és az üzenet a Roundcube natív `move_messages()`-ével a Kukába kerül
 - Ha a toast még nyitva van és egy másik levelet törlünk, az előző törlés azonnal végrehajtódik, új toast nyílik
-- Máshova kattintva/tappolva → a sor visszaugrik törlés nélkül
-- Mappa-húzással nem ütközik: ha az egér/ujj 40 px-nél többet mozdul függőlegesen, a swipe leáll; ha Roundcube a sort mappa-drop közben eltávolítja, a kuka gomb automatikusan eltűnik
-- MutationObserver: lapozás és frissítés után betöltött új sorokon is működik
+- A swipe automatikusan leáll, ha az ujj 40 px-nél többet mozdul függőlegesen (mappa-húzással nem ütközik)
+- Desktop: a plugin teljesen inaktív
 
 ### Követelmények
 
 - Roundcube 1.5+
-- Elastic skin (vagy bármely skin, amely `#messagelist`-et használ)
+- Elastic skin (vagy bármely skin, amely `layout-phone` vagy `touch` osztályt ad a `<html>` elemhez)
 
 ### Telepítés
 
@@ -98,13 +94,13 @@ $config['plugins'] = [
 
 ### Működési elv
 
-**Kuka gomb pozicionálása**
+**Swipe érzékelés**
 
-A HTML `<tr>` elemen belül a `position: absolute` nem működik rendesen (a böngészők nem kezelik positioning context-ként). Ezért a törlés gomb egy `position: fixed` overlay, amelyet a `<body>`-hoz csatolunk. Pozícióját a JavaScript a `touchstart`/`mousedown` eseménykor határozza meg `getBoundingClientRect()`-tel — még mielőtt bármilyen transform alkalmazódna —, így a gomb bal éle pontosan egybeesik a sor jobb élével, miután a sor 48 px-t csúszott balra. Mobilon `window.visualViewport.width`-t használunk a helyes pozicionáláshoz zoomolt viewport esetén is.
+A touch események minden üzenet-sorra fel vannak csatolva. `touchstart`-kor a plugin rögzíti a kiindulási pozíciót. `touchmove` közben nyomon követi a vízszintes elmozdulást és `translateX`-szel mozgatja a sort. Ha a függőleges eltérés bármikor meghaladja a 40 px-t, a swipe leáll és a sor visszaugrik. `touchend`-kor, ha a vízszintes delta ≥ 80 px, megkezdődik a törlési folyamat; egyébként a sor visszaugrik.
 
 **Halasztott törlés visszaállítással**
 
-A kuka gombra kattintás nem hív azonnal Roundcube API-t. Ehelyett a sor azonnal `display: none`-ra vált, a függőben lévő törlés adatait (UID + forrásmappa) eltároljuk, és megjelenik a visszaállítás toast 10 másodperces visszaszámlálással. Csak az időkorlát lejárta után hívódik meg a `rcmail.move_messages(trash, null, [uid])` (vagy kukában `rcmail.with_selected_messages('delete', ...)`). Ez a megközelítés nem igényli az áthelyezés utáni új UID ismeretét — ha a felhasználó Visszaállítást kattint, a sor egyszerűen újra láthatóvá válik és semmilyen API-hívás nem történik.
+Amikor a swipe küszöböt eléri az ujj, a sor kianimálódik és `display: none`-ra vált — de még semmilyen Roundcube API nem hívódik. A függőben lévő törlés (UID + forrásmappa) memóriában tárolódik, és megjelenik az 5 másodperces visszaállítás toast. Csak az időkorlát lejárta után hívódik meg a `rcmail.move_messages(trash, null, [uid])` (vagy kukában `rcmail.with_selected_messages('delete', ...)`). Ha a felhasználó **Visszaállítás**t tapol, a törlés törlődik, a sor visszacsúszik animációval, és semmilyen API-hívás nem kerül elküldésre.
 
 ---
 
