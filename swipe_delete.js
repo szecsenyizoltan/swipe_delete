@@ -14,8 +14,8 @@
     // A gomb csak akkor jelenik meg teljes szélességben, ha a sor
     // pontosan ennyit csúszott (= gomb szélessége).
     // Addig arányos opacity-val fokozatosan látszik.
-    var SWIPE_REVEAL    = 48;   // px — ennyit tolódik el a sor és ennyit foglal a gomb
-    var DELETE_TRIGGER  = 130;  // px — ennyi után automatikus törlés
+    var SWIPE_REVEAL   = 48;   // px — ennyit tolódik el a sor és ennyit foglal a gomb
+    var MAX_DRIFT_Y    = 40;   // px — ennyi függőleges eltérés után mappa-húzásnak tekintjük
 
     var activeRow    = null;
     var startX       = 0;
@@ -166,8 +166,26 @@
     // --- Közös mozgás / felengedés logika ---
 
     function handleMove(clientX, clientY) {
+        // Ha Roundcube mappa-húzást indított, azonnal leállunk
+        if (window.rcmail && rcmail.drag_active) {
+            resetRow(activeRow);
+            activeRow    = null;
+            isDragging   = false;
+            isHorizontal = null;
+            return;
+        }
+
         var deltaX = clientX - startX;
         var deltaY = clientY - startY;
+
+        // Ha az ujj/egér túl messzire ment függőlegesen, mappa-húzásnak tekintjük
+        if (Math.abs(deltaY) > MAX_DRIFT_Y) {
+            resetRow(activeRow);
+            activeRow    = null;
+            isDragging   = false;
+            isHorizontal = null;
+            return;
+        }
 
         if (isHorizontal === null) {
             if (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6) {
@@ -200,9 +218,9 @@
             return;
         }
 
-        if (Math.abs(deltaX) >= DELETE_TRIGGER) {
-            doDelete(activeRow);
-        } else if (Math.abs(deltaX) >= SWIPE_REVEAL) {
+        // Nincs automatikus törlés húzásra — csak a kuka ikonra kattintva töröl.
+        // Ez megakadályozza, hogy mappa-húzás közben véletlenül törlődjön az üzenet.
+        if (Math.abs(deltaX) >= SWIPE_REVEAL) {
             // Megáll a revealed pozícióban — gomb kattintható
             activeRow.style.transform = 'translateX(-' + SWIPE_REVEAL + 'px)';
             showBtnFull();
