@@ -4,14 +4,18 @@
  *
  * A törlés gomb position:fixed overlay, mert a <tr> elemen belül
  * a position:absolute nem működik rendesen böngészőkben.
+ * Mobilon a <tr> display:flex + position:relative, de a fixed megközelítés
+ * viewport-relatív koordinátákkal mindkét esetben helyes.
  */
 
 (function() {
     'use strict';
 
-    var SWIPE_THRESHOLD = 20;   // px, ennyi után jelenik meg a kuka
-    var SWIPE_REVEAL    = 44;   // px, ennyit tolódik el a sor (= gomb szélessége)
-    var DELETE_TRIGGER  = 120;  // px, ennyi után automatikusan töröl
+    // A gomb csak akkor jelenik meg teljes szélességben, ha a sor
+    // pontosan ennyit csúszott (= gomb szélessége).
+    // Addig arányos opacity-val fokozatosan látszik.
+    var SWIPE_REVEAL    = 48;   // px — ennyit tolódik el a sor és ennyit foglal a gomb
+    var DELETE_TRIGGER  = 130;  // px — ennyi után automatikus törlés
 
     var activeRow    = null;
     var startX       = 0;
@@ -28,63 +32,103 @@
             '</svg>';
     }
 
-    // Viewport szélessége mobilon is helyesen (zoom esetén visualViewport)
     function viewportWidth() {
-        return (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+        return window.visualViewport ? window.visualViewport.width : window.innerWidth;
     }
 
-    // Pozicionálja a gombot a sor EREDETI (transform nélküli) jobb széléhez.
-    // Átmenetileg törli a transformot a mérés előtt, majd visszaállítja.
+    // Pozicionálja a gombot a sor eredeti (transform nélküli) jobb széléhez.
+    // A gomb jobb éle = sor jobb éle → 48px csúszás után a tartalom jobb éle
+    // pontosan érinti a gomb bal élét, nincs rés és nincs átfedés.
     function anchorBtnToRow(row) {
-        row.style.transition = 'none';
-        row.style.transform  = '';
+        // Ha van előző transform, ideiglenesen töröljük a helyes méréshez
+        var had = !!row.style.transform;
+        if (had) {
+            row.style.transition = 'none';
+            row.style.transform  = '';
+            row.getBoundingClientRect(); // force reflow
+        }
 
         var rect = row.getBoundingClientRect();
 
-        // Transition visszakapcsolása a következő frame-ben
-        requestAnimationFrame(function() {
-            row.style.transition = '';
-        });
+        if (had) {
+            requestAnimationFrame(function() { row.style.transition = ''; });
+        }
 
-        deleteBtn.style.top    = rect.top + 'px';
+        var vw         = viewportWidth();
+        var rightEdge  = Math.min(rect.right, vw); // ne legyen negatív right érték
+        deleteBtn.style.top    = rect.top    + 'px';
         deleteBtn.style.height = rect.height + 'px';
-        // Gomb jobb éle = sor jobb éle → sor 44px-es elcsúszása után
-        // a tartalom jobb éle pontosan érinti a gomb bal élét, nincs rés
-        deleteBtn.style.right  = (viewportWidth() - rect.right) + 'px';
+        deleteBtn.style.right  = (vw - rightEdge)  + 'px';
+        deleteBtn.style.width  = SWIPE_REVEAL + 'px';
     }
 
-    function showBtn() { deleteBtn.classList.add('visible'); }
-    function hideBtn() { deleteBtn.classList.remove('visible'); }
+    // Opacity arányos a csúszás mértékével: 0 → teljes gomb szélességig fokozatosan látszik
+    function updateBtnOpacity(deltaX) {
+        var ratio = Math.min(1, Math.abs(deltaX) / SWIPE_REVEAL);
+        deleteBtn.style.opacity      = ratio;
+        deleteBtn.style.pointerEvents = ratio >= 1 ? 'auto' : 'none';
+    }
 
-    // Kinyeri a Roundcube IMAP UID-t a sorból.
-    // Roundcube a sort id="rcmrow{uid}" formában generálja.
+    function showBtnFull() {
+        deleteBtn.style.opacity       = '1';
+        deleteBtn.style.pointerEvents = 'auto';
+    }
+
+    function hideBtn() {
+        deleteBtn.style.opacity       = '0';
+        deleteBtn.style.pointerEvents = 'none';
+    }
+
+    // Kinyeri az IMAP UID-t a Roundcube sorból.
+    // HTML: id="rcmrow{uid}" → uid = a szám utáni rész
     function getRowUid(row) {
-        var uid = row.getAttribute('data-uid');
-        if (uid) return uid;
-        // "rcmrow123456" → "123456"
-        return (row.id || '').replace(/^rcmrow/, '');
+        return row.getAttribute('data-uid')
+            || (row.id || '').replace(/^rcmrow/, '');
     }
 
     function doDelete(row) {
         isDragging = false;
-        var uid = getRowUid(row);
-        row.classList.add('swipe-deleting');
+        activeRow  = null;
         hideBtn();
-        activeRow = null;
+
+        if (!window.rcmail) return;
+
+        var uid = getRowUid(row);
+        if (!uid) return;
+
+        // Csúsztatás ki (Roundcube a sort majd eltávolítja a DOM-ból
+        // a törlés válasz feldolgozásakor)
+        row.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+        row.style.transform  = 'translateX(-110%)';
+        row.style.opacity    = '0';
 
         setTimeout(function() {
-            if (!window.rcmail) return;
-            if (rcmail.message_list) {
-                rcmail.message_list.clear_selection();
-                rcmail.message_list.select(uid);
+            var ml = rcmail.message_list;
+            if (ml) {
+                ml.clear_selection();
+                // Közvetlen állapot beállítás — message_list.select() esetén
+                // a rows[uid] bejegyzés hiánya silently failelhet mobilon
+                if (ml.rows && ml.rows[uid]) {
+                    ml.selection         = [uid];
+                    ml.rows[uid].selected = true;
+                } else {
+                    // Próbáljuk numerikusan is
+                    var n = parseInt(uid, 10);
+                    if (ml.rows && ml.rows[n]) {
+                        ml.selection        = [n];
+                        ml.rows[n].selected = true;
+                        uid = n;
+                    }
+                }
             }
-            rcmail.command('delete', '', row);
-        }, 250);
+            rcmail.command('delete');
+        }, 230);
     }
 
     function resetRow(row) {
         if (!row) return;
         row.style.transform = '';
+        row.style.opacity   = '';
         hideBtn();
     }
 
@@ -102,32 +146,29 @@
         handleUp(e.clientX);
     }
 
-    // --- Érintés kezelők (a sorra kötve — touch követi az indítási elemet) ---
+    // --- Érintés kezelők ---
 
     function onTouchMove(e) {
         if (!isDragging || !activeRow) return;
         handleMove(e.touches[0].clientX, e.touches[0].clientY);
-        // Csak vízszintes swipe esetén tiltjuk a scrollt
         if (isHorizontal === true) e.preventDefault();
     }
 
     function onTouchEnd(e) {
         if (!isDragging) return;
-        var clientX = e.changedTouches && e.changedTouches[0]
-            ? e.changedTouches[0].clientX
-            : currentX;
-        handleUp(clientX);
+        var x = e.changedTouches && e.changedTouches[0]
+            ? e.changedTouches[0].clientX : currentX;
+        handleUp(x);
     }
 
-    // --- Mozgás / felengedés közös logika ---
+    // --- Közös mozgás / felengedés logika ---
 
     function handleMove(clientX, clientY) {
         var deltaX = clientX - startX;
         var deltaY = clientY - startY;
 
-        // Irány meghatározása az első 5px után
         if (isHorizontal === null) {
-            if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+            if (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6) {
                 isHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
             }
             return;
@@ -135,7 +176,6 @@
 
         if (!isHorizontal) return;
 
-        // Jobbra visszahúzás: visszaállítás
         if (deltaX > 0) {
             activeRow.style.transform = '';
             hideBtn();
@@ -145,12 +185,7 @@
         currentX = clientX;
         var offset = Math.min(Math.abs(deltaX), SWIPE_REVEAL);
         activeRow.style.transform = 'translateX(-' + offset + 'px)';
-
-        if (Math.abs(deltaX) >= SWIPE_THRESHOLD) {
-            showBtn();
-        } else {
-            hideBtn();
-        }
+        updateBtnOpacity(deltaX);
     }
 
     function handleUp(clientX) {
@@ -164,13 +199,12 @@
         }
 
         if (Math.abs(deltaX) >= DELETE_TRIGGER) {
-            // Elég messzire húzta: azonnali törlés
             doDelete(activeRow);
-        } else if (Math.abs(deltaX) >= SWIPE_THRESHOLD) {
-            // Megáll SWIPE_REVEAL px-nél, gomb várja a tapot/kattintást
+        } else if (Math.abs(deltaX) >= SWIPE_REVEAL) {
+            // Megáll a revealed pozícióban — gomb kattintható
             activeRow.style.transform = 'translateX(-' + SWIPE_REVEAL + 'px)';
-            showBtn();
-            // activeRow megmarad, hogy a gomb click/touchend törölhessen
+            showBtnFull();
+            // activeRow megmarad a gomb click/touchend handleréhez
         } else {
             resetRow(activeRow);
             activeRow = null;
@@ -191,23 +225,17 @@
     }
 
     function startSwipe(row, clientX, clientY) {
-        // Előző aktív sor visszaállítása
-        if (activeRow && activeRow !== row) {
-            resetRow(activeRow);
-        }
-
+        if (activeRow && activeRow !== row) resetRow(activeRow);
         activeRow    = row;
         startX       = clientX;
         startY       = clientY;
         currentX     = clientX;
         isDragging   = true;
         isHorizontal = null;
-
-        // Gombot a sor jobb széléhez horgonyozzuk (transform törlése után mérve)
         anchorBtnToRow(row);
     }
 
-    // --- Törlés gomb: click (desktop) + touchend (mobil, 300ms delay nélkül) ---
+    // --- Törlés gomb létrehozása ---
 
     function createGlobalDeleteBtn() {
         deleteBtn = document.createElement('div');
@@ -216,20 +244,21 @@
         deleteBtn.setAttribute('title', 'Törlés');
         document.body.appendChild(deleteBtn);
 
+        // Click: desktop
         deleteBtn.addEventListener('click', function(e) {
             e.stopPropagation();
             if (activeRow) doDelete(activeRow);
         });
 
-        // Mobil: touchend a 300ms click-delay megkerülésére
+        // Touchend: mobil — 300ms click-delay megkerülése
         deleteBtn.addEventListener('touchend', function(e) {
-            e.preventDefault(); // megakadályozza a szimulált click-et
+            e.preventDefault();
             e.stopPropagation();
             if (activeRow) doDelete(activeRow);
         });
     }
 
-    // --- Globális kattintás / tap: visszaállítás ha máshova kattint ---
+    // --- Visszaállítás ha máshova kattint/tap ---
 
     function onDocumentClick(e) {
         if (!activeRow) return;
@@ -238,13 +267,10 @@
         activeRow = null;
     }
 
-    // --- Görgetéskor elrejtjük a gombot ---
+    // --- Görgetéskor elrejtjük ---
 
     function onScroll() {
-        if (activeRow) {
-            resetRow(activeRow);
-            activeRow = null;
-        }
+        if (activeRow) { resetRow(activeRow); activeRow = null; }
     }
 
     // --- Sorok csatolása ---
@@ -252,7 +278,6 @@
     function attachToRow(row) {
         if (row._swipeDeleteAttached) return;
         row._swipeDeleteAttached = true;
-
         row.addEventListener('mousedown',  onRowMouseDown);
         row.addEventListener('touchstart', onRowTouchStart, { passive: true });
         row.addEventListener('touchmove',  onTouchMove,     { passive: false });
@@ -260,8 +285,8 @@
     }
 
     function attachToAllRows() {
-        var rows = document.querySelectorAll('#messagelist tbody tr, .message-list tr');
-        rows.forEach(attachToRow);
+        document.querySelectorAll('#messagelist tbody tr, .message-list tr')
+            .forEach(attachToRow);
     }
 
     // --- Inicializálás ---
@@ -276,30 +301,22 @@
             setTimeout(attachToAllRows, 100);
         });
 
-        var listContainer = document.getElementById('messagelist') || document.querySelector('.message-list');
-        if (listContainer) {
-            new MutationObserver(function(mutations) {
-                mutations.forEach(function(mut) {
-                    mut.addedNodes.forEach(function(node) {
-                        if (node.tagName === 'TR') {
-                            attachToRow(node);
-                        } else if (node.querySelectorAll) {
-                            node.querySelectorAll('tr').forEach(attachToRow);
-                        }
+        var list = document.getElementById('messagelist') || document.querySelector('.message-list');
+        if (list) {
+            new MutationObserver(function(muts) {
+                muts.forEach(function(m) {
+                    m.addedNodes.forEach(function(n) {
+                        if (n.tagName === 'TR') attachToRow(n);
+                        else if (n.querySelectorAll) n.querySelectorAll('tr').forEach(attachToRow);
                     });
                 });
-            }).observe(listContainer, { childList: true, subtree: true });
+            }).observe(list, { childList: true, subtree: true });
 
-            listContainer.addEventListener('scroll', onScroll);
+            list.addEventListener('scroll', onScroll);
         }
 
         window.addEventListener('scroll', onScroll);
-
-        // visualViewport scroll (mobil böngészők)
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('scroll', onScroll);
-        }
-
+        if (window.visualViewport) window.visualViewport.addEventListener('scroll', onScroll);
         document.addEventListener('click', onDocumentClick);
     }
 
@@ -307,11 +324,8 @@
         rcmail.addEventListener('init', init);
     } else {
         document.addEventListener('DOMContentLoaded', function() {
-            if (window.rcmail) {
-                rcmail.addEventListener('init', init);
-            } else {
-                window.addEventListener('load', init);
-            }
+            if (window.rcmail) rcmail.addEventListener('init', init);
+            else window.addEventListener('load', init);
         });
     }
 
