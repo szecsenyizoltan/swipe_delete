@@ -1,0 +1,43 @@
+/* Swipe Delete Plugin */
+
+#messagelist tbody tr,
+.message-list tr {
+    transition: transform 0.15s ease;
+    will-change: transform;
+}
+
+/* Törlés gomb: position:fixed overlay, mert <tr>-en belül
+   a position:absolute nem működik böngészőkben */
+.swipe-delete-action {
+    position: fixed;
+    width: 44px;
+    background-color: #e74c3c;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 9999;
+    transition: opacity 0.1s ease;
+}
+
+.swipe-delete-action.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.swipe-delete-action svg {
+    width: 22px;
+    height: 22px;
+    fill: #ffffff;
+    pointer-events: none;
+}
+
+/* Animáció törléskor */
+#messagelist tbody tr.swipe-deleting,
+.message-list tr.swipe-deleting {
+    transform: translateX(-100%) !important;
+    transition: transform 0.25s ease, opacity 0.25s ease !important;
+    opacity: 0;
+}
