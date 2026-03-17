@@ -10,7 +10,7 @@
 
     var SWIPE_DELETE_PX  = 80;   // px — ennyi után töröl elengedéskor
     var MAX_DRIFT_Y      = 40;   // px — ennyi függőleges eltérés után leáll
-    var UNDO_TIMEOUT_MS  = 5000;
+    var UNDO_TIMEOUT_MS  = 3000;
 
     var activeRow    = null;
     var startX       = 0;
