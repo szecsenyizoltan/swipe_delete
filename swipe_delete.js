@@ -112,23 +112,13 @@
 
         if (!window.rcmail) return;
 
-        var uid   = String(p.uid);
-        var trash = rcmail.env.trash_mailbox;
+        var numUid = parseInt(String(p.uid), 10) || p.uid;
+        var trash  = rcmail.env.trash_mailbox;
 
         if (trash && p.mbox !== trash) {
-            // Áthelyezés kukába — közvetlen POST az elmentett forrásmappával,
-            // nem az aktuális env.mailbox-szal (az időközben megváltozhat)
-            rcmail.http_post('move', {
-                _uid:         uid,
-                _mbox:        p.mbox,
-                _target_mbox: trash
-            });
+            rcmail.move_messages(trash, null, [numUid]);
         } else {
-            // Végleges törlés (már kukában voltunk)
-            rcmail.http_post('delete', {
-                _uid:  uid,
-                _mbox: p.mbox
-            });
+            rcmail.http_post('delete', {_uid: String(numUid), _mbox: p.mbox});
         }
     }
 
