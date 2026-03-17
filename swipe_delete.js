@@ -6,16 +6,17 @@
  * a position:absolute nem működik rendesen böngészőkben.
  * Mobilon a <tr> display:flex + position:relative, de a fixed megközelítés
  * viewport-relatív koordinátákkal mindkét esetben helyes.
+ *
+ * Törlés után 10 másodpercig "Visszaállítás" toast jelenik meg.
+ * A tényleges Roundcube-hívás (move to trash) csak a toast lejárta után fut.
  */
 
 (function() {
     'use strict';
 
-    // A gomb csak akkor jelenik meg teljes szélességben, ha a sor
-    // pontosan ennyit csúszott (= gomb szélessége).
-    // Addig arányos opacity-val fokozatosan látszik.
-    var SWIPE_REVEAL   = 48;   // px — ennyit tolódik el a sor és ennyit foglal a gomb
-    var MAX_DRIFT_Y    = 40;   // px — ennyi függőleges eltérés után mappa-húzásnak tekintjük
+    var SWIPE_REVEAL    = 48;    // px — ennyit tolódik el a sor és ennyit foglal a gomb
+    var MAX_DRIFT_Y     = 40;    // px — ennyi függőleges eltérés után mappa-húzásnak tekintjük
+    var UNDO_TIMEOUT_MS = 10000; // ms — ennyi ideig lehet visszaállítani
 
     var activeRow    = null;
     var startX       = 0;
@@ -24,6 +25,13 @@
     var isDragging   = false;
     var isHorizontal = null;
     var deleteBtn    = null;
+
+    // Függőben lévő törlés állapota
+    var pending = null; // { row, uid, mbox, timer, progressTimer }
+
+    // --- Toast elem ---
+    var toast         = null;
+    var toastProgress = null;
 
     function getTrashSVG() {
         return '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
@@ -36,16 +44,144 @@
         return window.visualViewport ? window.visualViewport.width : window.innerWidth;
     }
 
-    // Pozicionálja a gombot a sor eredeti (transform nélküli) jobb széléhez.
-    // A gomb jobb éle = sor jobb éle → 48px csúszás után a tartalom jobb éle
-    // pontosan érinti a gomb bal élét, nincs rés és nincs átfedés.
+    // --- Toast ---
+
+    function createToast() {
+        toast = document.createElement('div');
+        toast.className = 'swipe-delete-toast';
+        toast.innerHTML =
+            '<span class="swipe-delete-toast-text">Levél törölve</span>' +
+            '<button class="swipe-delete-toast-undo" type="button">Visszaállítás</button>' +
+            '<div class="swipe-delete-toast-progress"></div>';
+        document.body.appendChild(toast);
+
+        toastProgress = toast.querySelector('.swipe-delete-toast-progress');
+
+        toast.querySelector('.swipe-delete-toast-undo').addEventListener('click', function(e) {
+            e.stopPropagation();
+            undoDelete();
+        });
+        toast.querySelector('.swipe-delete-toast-undo').addEventListener('touchend', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            undoDelete();
+        });
+    }
+
+    function showToast() {
+        toast.classList.add('visible');
+        // Progress bar: 100% → 0% lineárisan UNDO_TIMEOUT_MS alatt
+        toastProgress.style.transition = 'none';
+        toastProgress.style.width = '100%';
+        // Következő frame-ben indítjuk az animációt
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+                toastProgress.style.transition = 'width ' + (UNDO_TIMEOUT_MS / 1000) + 's linear';
+                toastProgress.style.width = '0%';
+            });
+        });
+    }
+
+    function hideToast() {
+        toast.classList.remove('visible');
+        toastProgress.style.transition = 'none';
+        toastProgress.style.width = '0%';
+    }
+
+    // --- Törlés logika ---
+
+    function doDelete(row) {
+        isDragging = false;
+        activeRow  = null;
+        hideBtn();
+
+        if (!window.rcmail) return;
+
+        var uid = getRowUid(row);
+        if (!uid) return;
+
+        // Ha van korábbi függőben lévő törlés, azt most végrehajtjuk
+        if (pending) commitPending();
+
+        // Sor animálása kifelé
+        row.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+        row.style.transform  = 'translateX(-110%)';
+        row.style.opacity    = '0';
+
+        setTimeout(function() {
+            row.style.display = 'none';
+
+            pending = {
+                row:  row,
+                uid:  parseInt(row.getAttribute('data-uid') || (row.id || '').replace(/^rcmrow/, ''), 10)
+                      || row.getAttribute('data-uid')
+                      || (row.id || '').replace(/^rcmrow/, ''),
+                mbox: rcmail.env.mailbox
+            };
+
+            showToast();
+
+            // 10 mp után végrehajtjuk a törlést
+            pending.timer = setTimeout(function() {
+                commitPending();
+            }, UNDO_TIMEOUT_MS);
+        }, 230);
+    }
+
+    // Tényleges Roundcube törlés/mozgatás végrehajtása
+    function commitPending() {
+        if (!pending) return;
+        clearTimeout(pending.timer);
+
+        var p      = pending;
+        pending    = null;
+
+        hideToast();
+
+        if (!window.rcmail) return;
+
+        var trash = rcmail.env.trash_mailbox;
+
+        if (trash && p.mbox !== trash) {
+            rcmail.move_messages(trash, null, [p.uid]);
+        } else {
+            var post_data = rcmail.selection_post_data({_uid: [p.uid]});
+            if (post_data._uid) {
+                rcmail.with_selected_messages('delete', post_data);
+            }
+        }
+    }
+
+    // Visszaállítás: a sor visszakerül az eredeti helyére, törlés elmarad
+    function undoDelete() {
+        if (!pending) return;
+        clearTimeout(pending.timer);
+
+        var row = pending.row;
+        pending = null;
+        hideToast();
+
+        // Sor visszaállítása animációval
+        row.style.display    = '';
+        row.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+        row.style.transform  = 'translateX(0)';
+        row.style.opacity    = '1';
+
+        setTimeout(function() {
+            row.style.transition = '';
+            row.style.transform  = '';
+            row.style.opacity    = '';
+        }, 260);
+    }
+
+    // --- Gomb pozicionálás ---
+
     function anchorBtnToRow(row) {
-        // Ha van előző transform, ideiglenesen töröljük a helyes méréshez
         var had = !!row.style.transform;
         if (had) {
             row.style.transition = 'none';
             row.style.transform  = '';
-            row.getBoundingClientRect(); // force reflow
+            row.getBoundingClientRect();
         }
 
         var rect = row.getBoundingClientRect();
@@ -54,16 +190,14 @@
             requestAnimationFrame(function() { row.style.transition = ''; });
         }
 
-        var vw         = viewportWidth();
-        var rightEdge  = Math.min(rect.right, vw); // ne legyen negatív right érték
+        var vw        = viewportWidth();
+        var rightEdge = Math.min(rect.right, vw);
         deleteBtn.style.top    = rect.top    + 'px';
         deleteBtn.style.height = rect.height + 'px';
         deleteBtn.style.right  = (vw - rightEdge)  + 'px';
         deleteBtn.style.width  = SWIPE_REVEAL + 'px';
     }
 
-    // Opacity arányos a csúszás mértékével: 0 → teljes gomb szélességig fokozatosan látszik
-    // Ha a sort közben Roundcube eltávolította (pl. mappa-drop), elrejtjük a gombot
     function updateBtnOpacity(deltaX) {
         if (!activeRow || !activeRow.parentNode) {
             hideBtn();
@@ -86,52 +220,9 @@
         deleteBtn.style.pointerEvents = 'none';
     }
 
-    // Kinyeri az IMAP UID-t a Roundcube sorból.
-    // HTML: id="rcmrow{uid}" → uid = a szám utáni rész
     function getRowUid(row) {
         return row.getAttribute('data-uid')
             || (row.id || '').replace(/^rcmrow/, '');
-    }
-
-    function doDelete(row) {
-        isDragging = false;
-        activeRow  = null;
-        hideBtn();
-
-        if (!window.rcmail) return;
-
-        var uid = getRowUid(row);
-        if (!uid) return;
-
-        // Animáció: sor csúszik ki balra
-        row.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
-        row.style.transform  = 'translateX(-110%)';
-        row.style.opacity    = '0';
-
-        setTimeout(function() {
-            // display:none → nincs üres hely akár sikerül Roundcube-nak
-            // eltávolítani a DOM-ból, akár nem
-            row.style.display = 'none';
-
-            var numUid = parseInt(uid, 10) || uid;
-            var trash  = rcmail.env.trash_mailbox;
-
-            if (trash && rcmail.env.mailbox !== trash) {
-                // Normál eset: áthelyezés a kuka mappába.
-                // move_messages() harmadik paramétere [uids] tömb →
-                // selection_post_data({_uid: [numUid]}) -t hív, NEM a message_list
-                // get_selection()-t, tehát nem kell semmit kijelölni.
-                rcmail.move_messages(trash, null, [numUid]);
-            } else {
-                // Kukában vagyunk vagy nincs kuka mappa → végleges törlés.
-                // with_selected_messages() a move_messages() belső segédfüggvénye,
-                // szintén fogad közvetlen post_data-t.
-                var post_data = rcmail.selection_post_data({_uid: [numUid]});
-                if (post_data._uid) {
-                    rcmail.with_selected_messages('delete', post_data);
-                }
-            }
-        }, 230);
     }
 
     function resetRow(row) {
@@ -141,7 +232,7 @@
         hideBtn();
     }
 
-    // --- Egér kezelők (documentra kötve drag alatt) ---
+    // --- Egér kezelők ---
 
     function onMouseMove(e) {
         if (!isDragging || !activeRow) return;
@@ -170,13 +261,12 @@
         handleUp(x);
     }
 
-    // --- Közös mozgás / felengedés logika ---
+    // --- Közös logika ---
 
     function handleMove(clientX, clientY) {
         var deltaX = clientX - startX;
         var deltaY = clientY - startY;
 
-        // Ha az ujj/egér túl messzire ment függőlegesen, mappa-húzásnak tekintjük
         if (Math.abs(deltaY) > MAX_DRIFT_Y) {
             resetRow(activeRow);
             activeRow    = null;
@@ -216,13 +306,9 @@
             return;
         }
 
-        // Nincs automatikus törlés húzásra — csak a kuka ikonra kattintva töröl.
-        // Ez megakadályozza, hogy mappa-húzás közben véletlenül törlődjön az üzenet.
         if (Math.abs(deltaX) >= SWIPE_REVEAL) {
-            // Megáll a revealed pozícióban — gomb kattintható
             activeRow.style.transform = 'translateX(-' + SWIPE_REVEAL + 'px)';
             showBtnFull();
-            // activeRow megmarad a gomb click/touchend handleréhez
         } else {
             resetRow(activeRow);
             activeRow = null;
@@ -253,7 +339,7 @@
         anchorBtnToRow(row);
     }
 
-    // --- Törlés gomb létrehozása ---
+    // --- Törlés gomb ---
 
     function createGlobalDeleteBtn() {
         deleteBtn = document.createElement('div');
@@ -262,13 +348,11 @@
         deleteBtn.setAttribute('title', 'Törlés');
         document.body.appendChild(deleteBtn);
 
-        // Click: desktop
         deleteBtn.addEventListener('click', function(e) {
             e.stopPropagation();
             if (activeRow) doDelete(activeRow);
         });
 
-        // Touchend: mobil — 300ms click-delay megkerülése
         deleteBtn.addEventListener('touchend', function(e) {
             e.preventDefault();
             e.stopPropagation();
@@ -276,7 +360,7 @@
         });
     }
 
-    // --- Visszaállítás ha máshova kattint/tap ---
+    // --- Globális click: visszaállítás ha máshova kattint ---
 
     function onDocumentClick(e) {
         if (!activeRow) return;
@@ -284,8 +368,6 @@
         resetRow(activeRow);
         activeRow = null;
     }
-
-    // --- Görgetéskor elrejtjük ---
 
     function onScroll() {
         if (activeRow) { resetRow(activeRow); activeRow = null; }
@@ -313,6 +395,7 @@
         if (!window.rcmail) return;
 
         createGlobalDeleteBtn();
+        createToast();
         attachToAllRows();
 
         rcmail.addEventListener('listupdate', function() {
