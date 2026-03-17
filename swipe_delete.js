@@ -2,7 +2,7 @@
  * Swipe Delete Plugin
  * Egyszerű balra húzás törlés mobilon (layout-phone / touch).
  * Desktopon inaktív. Kuka gomb nincs — a swipe közvetlenül töröl,
- * 10 másodperces visszaállítási lehetőséggel.
+ * 2 másodperces visszaállítási lehetőséggel.
  */
 
 (function() {
