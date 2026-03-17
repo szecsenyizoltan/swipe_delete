@@ -3,7 +3,7 @@
 /**
  * Swipe Delete
  *
- * LinkedIn-stílusú balra húzás törlés funkció.
+ * Gmail-stílusú balra húzás törlés funkció mobilon.
  * Ha a felhasználó balra húzza az email sort, megjelenik egy kuka ikon,
  * amelyre kattintva törölhető az üzenet.
  *
