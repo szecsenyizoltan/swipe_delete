@@ -96,32 +96,38 @@
         var uid = getRowUid(row);
         if (!uid) return;
 
-        // Csúsztatás ki (Roundcube a sort majd eltávolítja a DOM-ból
-        // a törlés válasz feldolgozásakor)
+        // 1. Animáció: sor csúszik ki balra
         row.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
         row.style.transform  = 'translateX(-110%)';
         row.style.opacity    = '0';
 
         setTimeout(function() {
+            // 2. display:none → nincs üres hely, függetlenül attól, hogy
+            //    Roundcube eltávolítja-e a DOM-ból vagy sem
+            row.style.display = 'none';
+
+            // 3. Törlés küldése Roundcube-on keresztül
+            var numUid = parseInt(uid, 10) || uid;
             var ml = rcmail.message_list;
-            if (ml) {
+
+            if (ml && ml.rows) {
                 ml.clear_selection();
-                // Közvetlen állapot beállítás — message_list.select() esetén
-                // a rows[uid] bejegyzés hiánya silently failelhet mobilon
-                if (ml.rows && ml.rows[uid]) {
-                    ml.selection         = [uid];
-                    ml.rows[uid].selected = true;
-                } else {
-                    // Próbáljuk numerikusan is
-                    var n = parseInt(uid, 10);
-                    if (ml.rows && ml.rows[n]) {
-                        ml.selection        = [n];
-                        ml.rows[n].selected = true;
-                        uid = n;
-                    }
+                // Próbáljuk int és string kulcsal is
+                var key = ml.rows[numUid] ? numUid : (ml.rows[uid] ? uid : null);
+                if (key !== null) {
+                    ml.selection          = [key];
+                    ml.rows[key].selected = true;
+                    rcmail.command('delete');
+                    return;
                 }
             }
-            rcmail.command('delete');
+
+            // Fallback: közvetlen HTTP POST ha a message_list nem ad selection-t
+            rcmail.http_post('delete', {
+                _uid:  uid,
+                _mbox: rcmail.env.mailbox,
+                _from: 'list'
+            });
         }, 230);
     }
 
