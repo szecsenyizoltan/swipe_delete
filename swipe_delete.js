@@ -187,8 +187,9 @@
 
         // Sor követi az ujjat, de max SWIPE_DELETE_PX * 1.3-ig
         var offset = Math.min(Math.abs(dx), SWIPE_DELETE_PX * 1.3);
-        activeRow.style.transform = 'translateX(-' + offset + 'px)';
-        activeRow.style.filter    = 'invert(1)';
+        activeRow.style.transform       = 'translateX(-' + offset + 'px)';
+        activeRow.style.backgroundColor = '#8b0000';
+        activeRow.style.color           = '#ffffff';
     }
 
     function onTouchEnd(e) {
@@ -209,8 +210,9 @@
         if (!row) return;
         row.style.transition = 'transform 0.2s ease';
         row.style.transform  = '';
-        row.style.opacity    = '';
-        row.style.filter     = '';
+        row.style.opacity          = '';
+        row.style.backgroundColor  = '';
+        row.style.color            = '';
         setTimeout(function() { if (row) row.style.transition = ''; }, 200);
     }
 
